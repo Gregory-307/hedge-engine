@@ -1,0 +1,4 @@
+- {score: 0.0, hedge: 0.05}
+- {score: 0.3, hedge: 0.25}
+- {score: 0.7, hedge: 0.75}
+- {score: 1.0, hedge: 1.0} 
