@@ -12,6 +12,7 @@ from .config import Settings
 settings = Settings()
 
 _CURVE_CACHE: dict[str, "PchipInterpolator"] = {}
+_LAST_MTIME: float | None = None
 
 
 def _load_knots(file_path: Path) -> Tuple[np.ndarray, np.ndarray]:
@@ -24,12 +25,15 @@ def _load_knots(file_path: Path) -> Tuple[np.ndarray, np.ndarray]:
 
 
 def _get_spline() -> PchipInterpolator:
-    """Return cached monotonic spline evaluator."""
-    key = str(settings.spline_knots)
-    if key not in _CURVE_CACHE:
-        x, y = _load_knots(settings.spline_knots)
-        _CURVE_CACHE[key] = PchipInterpolator(x, y, extrapolate=False)
-    return _CURVE_CACHE[key]
+    """Return cached monotonic spline evaluator; hot-reload on file change."""
+    global _LAST_MTIME
+    path = settings.spline_knots
+    mtime = path.stat().st_mtime
+    if _LAST_MTIME is None or mtime != _LAST_MTIME or str(path) not in _CURVE_CACHE:
+        x, y = _load_knots(path)
+        _CURVE_CACHE[str(path)] = PchipInterpolator(x, y, extrapolate=False)
+        _LAST_MTIME = mtime
+    return _CURVE_CACHE[str(path)]
 
 
 def liquidity_weight(depth1pct_usd: float) -> float:
