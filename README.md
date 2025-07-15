@@ -23,8 +23,8 @@ docker compose up --build
 open http://localhost:8000/docs
 ```
 
-## Interactive demo notebook
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Gregory-307/hedge-engine/blob/main/notebooks/hedge_engine_demo.ipynb)
+## Interactive Colab notebook
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Gregory-307/hedge-engine/blob/main/notebooks/hedge_engine_colab.ipynb)
 
 The notebook walks through:
 1. Health check call.
