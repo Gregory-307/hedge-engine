@@ -24,7 +24,7 @@ open http://localhost:8000/docs
 ```
 
 ## Interactive demo notebook
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Gregory-307/hedge-engine/blob/main/notebooks/hedge_engine_demo.py?format=py)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Gregory-307/hedge-engine/blob/main/notebooks/hedge_engine_demo.ipynb)
 
 The notebook walks through:
 1. Health check call.
