@@ -1,147 +1,92 @@
-# Hedge-Engine
+# Inventory Risk Engine
 
-**General-purpose signal → hedge sizing engine for quants.**
+**Real-time inventory risk assessment for market makers.**
 
 [![CI](https://github.com/Gregory-307/hedge-engine/actions/workflows/ci.yaml/badge.svg)](https://github.com/Gregory-307/hedge-engine/actions/workflows/ci.yaml)
-[![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Gregory-307/hedge-engine/blob/main/notebooks/hedge_engine_colab.ipynb)
 
 ---
 
 ## What It Does
 
-Takes **any normalized signal** (0.0–1.0) and **liquidity depth**, returns a **hedge percentage** via configurable monotonic spline interpolation.
+Takes your **position data** and **market conditions**, returns an **actionable recommendation** with P&L scenarios and hedge costs.
 
 ```
-Signal (0-1) + Liquidity → Hedge Percentage
+Position + Market Conditions → Action + Hedge Details + P&L Scenarios
 ```
 
-**Use cases:**
-- Sentiment signals → hedge sizing
-- Volatility regime → position scaling
-- Momentum indicators → risk adjustment
-- Funding rates → crowding protection
-- Any custom signal → configurable response curve
-
-**Key specs:**
-- Sub-50 µs compute latency (tested)
-- Signal-agnostic (works with any 0-1 normalized input)
-- Configurable spline curves per signal type
-- Hot-reload curves without restart
-- Circuit breaker for DB failures
-- Immutable audit trail of all decisions
-
----
-
-## System Architecture
-
-Hedge-engine is **signal-agnostic** — it maps any normalized score to hedge sizing:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         SIGNAL SOURCES (Examples)                           │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐       │
-│   │  Sentiment  │  │ Volatility  │  │  Momentum   │  │   Funding   │       │
-│   │  ─────────  │  │  ─────────  │  │  ─────────  │  │  ─────────  │       │
-│   │  Twitter    │  │  Realized   │  │  RSI/MACD   │  │  Perp rates │       │
-│   │  News       │  │  Implied    │  │  Mean rev   │  │  OI delta   │       │
-│   │  Reddit     │  │  VIX proxy  │  │  Trend str  │  │  Basis      │       │
-│   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘       │
-│          │                │                │                │               │
-│          ▼                ▼                ▼                ▼               │
-│   ┌─────────────────────────────────────────────────────────────────┐      │
-│   │                    NORMALIZER (0-1 scale)                       │      │
-│   │   Raw signal → percentile rank / min-max / z-score clip        │      │
-│   └─────────────────────────────┬───────────────────────────────────┘      │
-│                                 │                                          │
-│                                 ▼                                          │
-│   ┌─────────────────────────────────────────────────────────────────┐      │
-│   │                    ★ HEDGE-ENGINE ★                             │      │
-│   │   ─────────────────────────────────────────────────────────     │      │
-│   │                                                                 │      │
-│   │   normalized     ┌─────────────────┐                            │      │
-│   │   score (0-1) ──►│ Monotonic Spline │──► hedge_pct (0-100%)    │      │
-│   │   depth ($) ────►│ (per signal type)│    + confidence          │      │
-│   │                  └─────────────────┘                            │      │
-│   │                                                                 │      │
-│   │   • Configurable curves per signal type (YAML)                  │      │
-│   │   • Liquidity weighting (dampens in thin markets)               │      │
-│   │   • Multi-signal aggregation (weighted combination)             │      │
-│   │   • Sub-50µs latency, production-ready                          │      │
-│   │                                                                 │      │
-│   └─────────────────────────────────────────────────────────────────┘      │
-│                                 │                                          │
-│                                 ▼                                          │
-│                        Trading / Execution                                 │
-│                                                                            │
-└────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Example: Crypto Swing Analysis Suite
-
-One implementation uses hedge-engine as the decision layer for sentiment-driven hedging:
-
-| Repository | Purpose | Status |
-|------------|---------|--------|
-| [web-search-sdk](https://github.com/Gregory-307/web-search-sdk) | Async web scraping (news, Wikipedia, paywalls) | Production |
-| [twitter-stack](https://github.com/Gregory-307/twitter-stack) | Twitter scraping with account/proxy management | Production |
-| [sentiment-pipeline](https://github.com/Gregory-307/sentiment-pipeline) | Real-time sentiment analysis & coefficient generation | Production |
-| **hedge-engine** (this repo) | Signal → hedge sizing decision layer | Production |
-
----
-
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| **Monotonic Spline Sizing** | Smooth, monotonic curve from configurable YAML knots |
-| **Liquidity Weighting** | Confidence scaled by order-book depth |
-| **Hot-Reload Curve** | Update sizing parameters without restart |
-| **Circuit Breaker** | Stop hammering failed DB after 3 failures, auto-retry after 30s |
-| **Async Decision Logging** | Background PostgreSQL writes, fallback queue on failure |
-| **Prometheus Metrics** | Circuit state gauge, latency histograms |
-| **Sub-50µs Latency** | Spline evaluation is O(1), no I/O on critical path |
-| **Dockerized** | docker-compose with API + Redis + Postgres |
+**For market makers who need to:**
+- Assess inventory risk in real-time
+- Get actionable hedge recommendations (not abstract scores)
+- See P&L scenarios for different market moves
+- Compare hedge instrument costs (spot vs perp)
+- Know exactly what to do: HOLD, HEDGE, REDUCE, or LIQUIDATE
 
 ---
 
 ## Quick Start
 
-### Docker (recommended)
+### Install
 ```bash
-docker compose up --build
+pip install -e ".[dev]"
+```
+
+### Run the API
+```bash
+uvicorn hedge_engine.main:app --reload
 # API at http://localhost:8000
 # Docs at http://localhost:8000/docs
 ```
 
-### Local Development
+### Assess a Position
 ```bash
-pip install -e ".[dev]"
-uvicorn hedge_engine.main:app --reload
-```
-
-### Test the API
-```bash
-# Health check
-curl http://localhost:8000/healthz
-
-# Get hedge recommendation
-curl -X POST http://localhost:8000/hedge \
+curl -X POST http://localhost:8000/assess \
   -H "Content-Type: application/json" \
-  -d '{"asset": "BTC", "amount_usd": 100000, "override_score": 0.7}'
+  -d '{
+    "position": {
+      "asset": "BTC",
+      "size": 10.0,
+      "entry_price": 45000.0,
+      "age_minutes": 60
+    },
+    "market": {
+      "current_price": 44000.0,
+      "volatility_1d": 0.05,
+      "spot_spread_bps": 3.0,
+      "perp_funding_rate": 0.08,
+      "bid_depth_usd": 5000000,
+      "ask_depth_usd": 5000000
+    }
+  }'
 ```
 
 **Response:**
 ```json
 {
-  "hedge_pct": 0.6825,
-  "notional_usd": 68250.0,
-  "confidence": 0.85,
-  "version": "0.1.0",
-  "ts_ms": 1705420800000
+  "action": "HEDGE_PARTIAL",
+  "hedge_pct": 0.5,
+  "risk_score": 47.3,
+  "reasoning": "Risk score 47/100 (moderate). Recommend 50% hedge via perp_short. Reduces downside while keeping upside.",
+  "suggested_hedge": {
+    "instrument": "perp_short",
+    "size": 5.0,
+    "spread_cost_usd": 66.0,
+    "funding_cost_1d_usd": -24.11,
+    "total_cost_usd": 66.0,
+    "total_cost_bps": 3.0
+  },
+  "pnl_scenarios": {
+    "move_down_5pct": -11000.0,
+    "move_down_2pct": -4400.0,
+    "move_up_2pct": 4400.0,
+    "move_up_5pct": 11000.0,
+    "hedged_down_5pct": -5500.0,
+    "hedged_up_5pct": 5500.0
+  },
+  "position_notional_usd": 440000.0,
+  "re_evaluate_minutes": 60,
+  "version": "0.2.0"
 }
 ```
 
@@ -152,106 +97,111 @@ curl -X POST http://localhost:8000/hedge \
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/healthz` | Liveness probe |
-| `POST` | `/hedge` | Get hedge sizing recommendation |
+| `POST` | `/assess` | Assess position risk and get recommendation |
 | `GET` | `/metrics` | Prometheus metrics |
 
-### POST /hedge
+### POST /assess
 
 **Request:**
 ```json
 {
-  "asset": "BTC",           // BTC, ETH, LTC, XRP
-  "amount_usd": 100000,     // Position size to hedge
-  "override_score": 0.7     // Optional: manual score (0.0-1.0)
+  "position": {
+    "asset": "BTC",
+    "size": 10.0,           // Positive = long, negative = short
+    "entry_price": 45000.0,
+    "age_minutes": 60       // How long position held
+  },
+  "market": {
+    "current_price": 44000.0,
+    "volatility_1d": 0.05,       // 5% daily vol
+    "spot_spread_bps": 3.0,      // Bid-ask spread
+    "perp_funding_rate": 0.08,   // Annual funding rate
+    "bid_depth_usd": 5000000,    // Liquidity on bid
+    "ask_depth_usd": 5000000     // Liquidity on ask
+  },
+  "config": {                    // Optional overrides
+    "max_loss_pct": 0.05,
+    "max_hold_minutes": 480
+  }
 }
 ```
 
-**Response:**
-```json
-{
-  "hedge_pct": 0.6825,      // Recommended hedge percentage
-  "notional_usd": 68250.0,  // amount_usd × hedge_pct
-  "confidence": 0.85,       // Model confidence
-  "version": "0.1.0",       // API version
-  "ts_ms": 1705420800000    // Timestamp (ms)
-}
-```
+**Response fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `action` | string | `HOLD`, `HEDGE_PARTIAL`, `HEDGE_FULL`, `REDUCE`, `LIQUIDATE` |
+| `hedge_pct` | float | Recommended hedge percentage (0.0-1.0) |
+| `risk_score` | float | 0-100 risk score |
+| `reasoning` | string | Human-readable explanation |
+| `suggested_hedge` | object | Instrument, size, and cost breakdown |
+| `pnl_scenarios` | object | P&L at ±2% and ±5% market moves |
+| `re_evaluate_minutes` | int | When to reassess (higher risk = sooner) |
 
 ---
 
-## Sizing Algorithm
+## Risk Assessment Logic
 
-The hedge percentage is computed via **monotonic cubic spline interpolation**:
+### Risk Score (0-100)
 
-1. **Fetch inputs**: sentiment `score` (0-1) + `liquidity_depth` (USD at ±1%)
-2. **Apply liquidity weight**: `effective_score = score × liquidity_weight(depth)`
-3. **Evaluate spline**: Defined by configurable knots in `configs/curve_knots.yaml`
-4. **Clamp**: Ensure result is within `[0, max_hedge_pct]`
+The risk score is calculated from four factors:
 
-**Default curve knots:**
-```yaml
-- {score: 0.0, hedge: 0.05}   # Very bullish → minimal hedge
-- {score: 0.3, hedge: 0.25}
-- {score: 0.7, hedge: 0.75}
-- {score: 1.0, hedge: 1.00}   # Very bearish → full hedge
-```
+| Factor | Weight | Description |
+|--------|--------|-------------|
+| **Loss Severity** | 0-30 | Volatility-adjusted potential loss vs your max tolerance |
+| **Position Age** | 0-20 | Older positions = higher risk (inventory should turn over) |
+| **Volatility Regime** | 0-25 | High vol markets require faster decisions |
+| **Size vs Liquidity** | 0-15 | Large position relative to book depth = harder to exit |
 
-The curve is **monotonic** — higher scores always produce equal or higher hedge percentages.
+### Action Thresholds
+
+| Risk Score | Action | Hedge % |
+|------------|--------|---------|
+| 75+ | `LIQUIDATE` | 100% |
+| 60-74 | `HEDGE_FULL` | 100% |
+| 45-59 | `HEDGE_PARTIAL` | 50% |
+| 35-44 | `REDUCE` | 25% |
+| 0-34 | `HOLD` | 0% |
+
+### Hedge Instrument Selection
+
+For **long positions** (need to reduce delta by selling):
+- **Perp short** if funding > 2% (you earn funding)
+- **Spot sell** otherwise
+
+For **short positions** (need to reduce delta by buying):
+- **Perp long** if funding < -2% (shorts earn funding)
+- **Spot buy** otherwise
 
 ---
 
-## Validation Status
+## P&L Scenarios
 
-> **Transparency note**: This section documents what's evidence-backed vs what requires validation.
+Every assessment includes P&L projections:
 
-### What's Backed by Research
-
-The architectural approach is grounded in peer-reviewed literature (12 papers, 2019-2025):
-
-| Finding | Source | Implication |
-|---------|--------|-------------|
-| Sentiment predicts volume/volatility, not returns | Economics Letters 2019 | Use as risk signal, not alpha |
-| Neutral tweets ↑ liquidity; negative ↑ volatility | MDPI Data 2025 | Liquidity weighting makes sense |
-| Signals decay fast (<24h for sentiment) | Multiple sources | Staleness rejection is correct |
-| Bot manipulation distorts signals | Finance Research Letters 2022 | Upstream filtering required |
-| ~55-60% directional accuracy ceiling | Multiple sources | Don't over-rely on sentiment alone |
-
-**Evidence supports**: Using sentiment as a *hedging trigger* (risk management) rather than a *return predictor* (alpha generation).
-
-### What's NOT Validated (Placeholder Values)
-
-| Component | Current Value | Status |
-|-----------|---------------|--------|
-| Spline knots | `{0→5%, 0.3→25%, 0.7→75%, 1→100%}` | Placeholder - needs optimization |
-| Liquidity weight formula | `log1p(depth) / log1p(10M)` | Reasonable guess - needs tuning |
-| Default depth | $5M USD | Arbitrary - should come from live data |
-| Confidence calculation | `min(liquidity_weight, 1.0)` | Simplified - needs research |
-
-### Validation Roadmap (Not Yet Implemented)
-
-To move from hypothesis to proven strategy:
-
-1. **Walk-forward backtesting** on 2017-2024 crypto data
-2. **Parameter optimization** for spline knots via grid search
-3. **Live paper trading** with Δspread and slippage metrics
-4. **A/B testing** against baseline (fixed hedge %)
-5. **Drawdown analysis** during crisis periods (May 2021, Nov 2022 FTX)
-
-See `MasterPlan.md` and `research_evidence_matrix.md` for full literature review.
+| Scenario | Description |
+|----------|-------------|
+| `move_down_5pct` | P&L if price drops 5% |
+| `move_down_2pct` | P&L if price drops 2% |
+| `move_up_2pct` | P&L if price rises 2% |
+| `move_up_5pct` | P&L if price rises 5% |
+| `hedged_down_5pct` | P&L with hedge if price drops 5% |
+| `hedged_up_5pct` | P&L with hedge if price rises 5% |
 
 ---
 
 ## Configuration
 
-Environment variables (prefix `HE_`):
+### Risk Config (per-request)
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `HE_ENV` | `dev` | Environment (dev/prod) |
-| `HE_REDIS_URL` | `redis://redis:6379/0` | Redis connection |
-| `HE_DB_DSN` | `postgresql+asyncpg://...` | Postgres DSN |
-| `HE_MAX_HEDGE_PCT` | `1.0` | Maximum hedge percentage |
-| `HE_STALE_SCORE_S` | `3` | Reject scores older than N seconds |
+Pass custom risk parameters in the `config` field:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `max_loss_pct` | 0.05 | Max acceptable loss (5%) |
+| `hedge_trigger_loss_pct` | 0.02 | Start hedging at this loss |
+| `max_hold_minutes` | 480 | Max hold time (8 hours) |
+| `max_hedge_cost_bps` | 50 | Don't hedge if cost > 50bps |
 
 ---
 
@@ -259,33 +209,17 @@ Environment variables (prefix `HE_`):
 
 ```bash
 # Run all tests
-pytest -q
+pytest -v
 
 # With coverage
 pytest --cov=hedge_engine --cov-report=term
 
-# Property-based tests (monotonicity, bounds)
-pytest tests/test_sizer_prop.py -v
+# Type checking
+mypy hedge_engine/
+
+# Linting
+ruff check hedge_engine/
 ```
-
-**Test coverage:**
-- Unit tests for boundary values and monotonicity
-- Property-based tests via Hypothesis
-- Performance regression tests (<50µs)
-- Circuit breaker state transitions
-- Async logging with DB failure handling
-
----
-
-## Interactive Demo
-
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Gregory-307/hedge-engine/blob/main/notebooks/hedge_engine_colab.ipynb)
-
-The notebook walks through:
-1. Health check call
-2. Hedge sizing with override score
-3. Scraping Prometheus metrics
-4. Using `compute_hedge()` directly in Python
 
 ---
 
@@ -294,23 +228,15 @@ The notebook walks through:
 ```
 hedge-engine/
 ├── hedge_engine/
-│   ├── main.py              # FastAPI app factory
-│   ├── api.py               # REST endpoints
-│   ├── sizer.py             # Spline sizing algorithm
-│   ├── config.py            # Pydantic settings
-│   ├── decision_logger.py   # Async Postgres logging
-│   ├── circuit_breaker.py   # Failure resilience
-│   └── validators.py        # Input validation
-├── configs/
-│   └── curve_knots.yaml     # Spline configuration
+│   ├── main.py       # FastAPI app factory
+│   ├── api.py        # REST endpoints
+│   ├── assessor.py   # Core risk assessment logic
+│   └── models.py     # Data models
 ├── tests/
-│   ├── test_sizer.py        # Unit tests
-│   ├── test_sizer_prop.py   # Property-based tests
-│   ├── test_perf.py         # Latency benchmarks
-│   └── ...
-├── docker-compose.yml       # Full stack
-├── Dockerfile
-└── pyproject.toml
+│   ├── test_api.py       # API endpoint tests
+│   └── test_assessor.py  # Assessment logic tests
+├── pyproject.toml
+└── README.md
 ```
 
 ---
