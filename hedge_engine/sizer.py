@@ -6,6 +6,7 @@ from typing import Tuple, List
 import numpy as np
 import yaml
 from scipy.interpolate import PchipInterpolator
+import math
 
 from .config import Settings
 
@@ -13,6 +14,7 @@ settings = Settings()
 
 _CURVE_CACHE: dict[str, "PchipInterpolator"] = {}
 _LAST_MTIME: float | None = None
+_LOG_MAX_DEPTH = math.log1p(10_000_000)
 
 
 def _load_knots(file_path: Path) -> Tuple[np.ndarray, np.ndarray]:
@@ -38,7 +40,7 @@ def _get_spline() -> PchipInterpolator:
 
 def liquidity_weight(depth1pct_usd: float) -> float:
     """Weight score by order-book depth (monotonic)."""
-    return min(1.0, np.log1p(depth1pct_usd) / np.log1p(10_000_000))
+    return min(1.0, math.log1p(depth1pct_usd) / _LOG_MAX_DEPTH)
 
 
 def compute_hedge(
@@ -54,4 +56,8 @@ def compute_hedge(
     hedge_pct = max(0.0, min(settings.max_hedge_pct, hedge_pct))
 
     confidence = min(weight, 1.0)
+    if score >= 1.0:
+        hedge_pct = settings.max_hedge_pct
+        confidence = min(weight, 1.0)
+        return hedge_pct, confidence
     return hedge_pct, confidence 

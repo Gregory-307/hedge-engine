@@ -33,3 +33,18 @@ jobs:
 
       - name: Run tests
         run: pytest -q 
+
+      - name: Build Docker image
+        run: docker build -t hedge-engine:ci .
+
+      - name: Smoke test container
+        run: |
+          docker run -d --rm -p 8000:8000 --name hedge-api -e HE_DB_DSN=sqlite:// hedge-engine:ci
+          # Wait for service to be up to 20s
+          for i in {1..20}; do
+            if curl -s http://localhost:8000/healthz | grep -q '"status":"ok"'; then
+              echo "Smoke test passed" && break
+            fi
+            sleep 1
+          done
+          docker stop hedge-api 

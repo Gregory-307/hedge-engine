@@ -1,7 +1,11 @@
-from fastapi import APIRouter, status
+from fastapi import APIRouter, status, BackgroundTasks
 from pydantic import BaseModel
 from typing import Literal
 from datetime import datetime, timezone
+from .sizer import compute_hedge
+from .config import Settings
+from . import __version__ as PACKAGE_VERSION
+from .decision_logger import DecisionLogger
 
 router = APIRouter()
 
@@ -22,14 +26,28 @@ class HedgeResponse(BaseModel):
     ts_ms: int
 
 @router.post("/hedge", response_model=HedgeResponse, status_code=status.HTTP_200_OK)
-async def hedge(req: HedgeRequest) -> HedgeResponse:
-    # Placeholder logic: always hedge 10 %
-    hedge_pct = 0.10
+async def hedge(req: HedgeRequest, background_tasks: BackgroundTasks) -> HedgeResponse:
+    settings = Settings()  # fresh env overrides
+    score = req.override_score if req.override_score is not None else 0.5  # TODO: replace with real scoring
+    depth_usd = 5_000_000  # TODO: replace with live order-book depth
+    hedge_pct, confidence = compute_hedge(score, depth1pct_usd=depth_usd)
+
+    record = {
+        "asset": req.asset,
+        "amount_usd": req.amount_usd,
+        "hedge_pct": hedge_pct,
+        "confidence": confidence,
+        "ts_ms": int(datetime.now(tz=timezone.utc).timestamp() * 1000),
+    }
+
+    # Fire-and-forget DB logging
+    background_tasks.add_task(DecisionLogger.log, record)
+
     resp = HedgeResponse(
         hedge_pct=hedge_pct,
         notional_usd=req.amount_usd * hedge_pct,
-        confidence=1.0,
-        version="0.1.0",
-        ts_ms=int(datetime.now(tz=timezone.utc).timestamp() * 1000),
+        confidence=confidence,
+        version=PACKAGE_VERSION,
+        ts_ms=record["ts_ms"],
     )
     return resp 

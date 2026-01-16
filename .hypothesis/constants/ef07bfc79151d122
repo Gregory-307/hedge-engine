@@ -1,0 +1,4 @@
+# file: D:\OneDrive\Documents\GitHub\hedge-engine\hedge_engine\config.py
+# hypothesis_version: 6.135.31
+
+[1.0, 'HE_', 'dev', 'prod']

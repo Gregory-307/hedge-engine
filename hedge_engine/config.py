@@ -1,6 +1,10 @@
 from pathlib import Path
-from pydantic import BaseSettings, Field
+try:
+    from pydantic_settings import BaseSettings
+except ImportError:  # pragma: no cover
+    from pydantic import BaseSettings  # type: ignore
 from typing import Literal
+from pydantic import Field
 
 class Settings(BaseSettings):
     env: Literal["dev", "prod"] = "dev"

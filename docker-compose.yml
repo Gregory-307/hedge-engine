@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    container_name: hedge-api
+    ports:
+      - "8000:8000"
+    environment:
+      HE_DB_DSN: postgresql+asyncpg://hedge:hedge@postgres/hedge
+      HE_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+      - postgres
+
+  redis:
+    image: redis:7-alpine
+    container_name: hedge-redis
+    ports:
+      - "6379:6379"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: hedge-postgres
+    environment:
+      POSTGRES_DB: hedge
+      POSTGRES_USER: hedge
+      POSTGRES_PASSWORD: hedge
+    ports:
+      - "5432:5432" 

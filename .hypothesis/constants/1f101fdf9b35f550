@@ -1,0 +1,4 @@
+# file: D:\OneDrive\Documents\GitHub\hedge-engine\hedge_engine\circuit_breaker.py
+# hypothesis_version: 6.135.31
+
+[30.0, 'CLOSED', 'CircuitBreaker', 'HALF_OPEN', 'OPEN', '_P', '_T']
