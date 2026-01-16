@@ -6,7 +6,7 @@ from hedge_engine.decision_logger import DecisionLogger
 
 client = TestClient(app)
 
-def test_hedge_placeholder(monkeypatch):
+def test_hedge_endpoint_with_override_score(monkeypatch):
     async def dummy_log(record):
         return None
 

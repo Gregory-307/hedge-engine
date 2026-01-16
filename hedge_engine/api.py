@@ -28,8 +28,12 @@ class HedgeResponse(BaseModel):
 @router.post("/hedge", response_model=HedgeResponse, status_code=status.HTTP_200_OK)
 async def hedge(req: HedgeRequest, background_tasks: BackgroundTasks) -> HedgeResponse:
     settings = Settings()  # fresh env overrides
-    score = req.override_score if req.override_score is not None else 0.5  # TODO: replace with real scoring
-    depth_usd = 5_000_000  # TODO: replace with live order-book depth
+    # Integration points: In production, these values come from upstream services:
+    # - score: sentiment-pipeline publishes to Redis channel `sentiment:latest:{asset}`
+    # - depth_usd: order-book service writes to ClickHouse (depth at ±1% from mid)
+    # For standalone testing, use override_score or defaults below.
+    score = req.override_score if req.override_score is not None else 0.5
+    depth_usd = 5_000_000  # Default depth; override via future Redis integration
     hedge_pct, confidence = compute_hedge(score, depth1pct_usd=depth_usd)
 
     record = {

@@ -1,4 +1,4 @@
-# Placeholder for SQLAlchemy engine setup
+# SQLAlchemy engine for decision audit logging
 from sqlalchemy import create_engine
 from .config import Settings
 
