@@ -15,4 +15,4 @@ def test_compute_hedge_speed():
     )
     avg_us = (duration / repetitions) * 1e6
     # Allow generous threshold for CI variability; target is <5 µs median locally.
-    assert avg_us < 50, f"compute_hedge too slow: {avg_us:.2f} µs > 50 µs" 
+    assert avg_us < 50, f"compute_hedge too slow: {avg_us:.2f} µs > 50 µs"

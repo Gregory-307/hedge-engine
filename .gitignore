@@ -43,4 +43,4 @@ tags
 .DS_Store
 
 # Logs
-logs/ 
+logs/ .hypothesis/

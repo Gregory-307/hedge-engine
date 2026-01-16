@@ -60,4 +60,4 @@ def compute_hedge(
         hedge_pct = settings.max_hedge_pct
         confidence = min(weight, 1.0)
         return hedge_pct, confidence
-    return hedge_pct, confidence 
+    return hedge_pct, confidence

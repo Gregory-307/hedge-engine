@@ -13,4 +13,4 @@ def test_boundary_values():
 def test_monotonicity():
     scores = np.linspace(0.0, 1.0, 20)
     hedge_pcts = [compute_hedge(s, depth1pct_usd=5_000_000)[0] for s in scores]
-    assert all(earlier <= later for earlier, later in zip(hedge_pcts, hedge_pcts[1:])) 
+    assert all(earlier <= later for earlier, later in zip(hedge_pcts, hedge_pcts[1:]))

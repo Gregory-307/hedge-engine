@@ -41,7 +41,8 @@ class DecisionLogger:
     async def log(cls, record: Dict[str, Any]) -> None:  # noqa: D401 – imperative style
         """Persist *record* to Postgres; enqueue on error for later retry."""
         try:
-            async def _write():
+
+            async def _write() -> None:
                 engine = cls._get_engine()
                 async with engine.begin() as conn:
                     await conn.execute(
@@ -68,7 +69,9 @@ class DecisionLogger:
         if remaining == 0:
             return 0
         # Drain snapshot to avoid infinite loop if writes keep failing.
-        snapshot: list[Dict[str, Any]] = [cls._queue.get_nowait() for _ in range(remaining)]
+        snapshot: list[Dict[str, Any]] = [
+            cls._queue.get_nowait() for _ in range(remaining)
+        ]
         for rec in snapshot:
             try:
                 await cls.log(rec)
@@ -76,4 +79,4 @@ class DecisionLogger:
                 # If persisting still fails, push back and abort to avoid busy loop.
                 await cls._queue.put(rec)
                 break
-        return cls._queue.qsize() 
+        return cls._queue.qsize()

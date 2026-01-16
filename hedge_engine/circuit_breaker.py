@@ -47,9 +47,12 @@ class CircuitBreaker:
         logger.info("Circuit breaker reset to CLOSED")
 
     # ------------------------------------------------------------------
-    def call(self, func: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs) -> _T:  # type: ignore[misc]
+    def call(self, func: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs) -> _T:
         if self._state == "OPEN":
-            if self._opened_at and (time.monotonic() - self._opened_at) >= self.reset_timeout:
+            if (
+                self._opened_at
+                and (time.monotonic() - self._opened_at) >= self.reset_timeout
+            ):
                 # After timeout, attempt single call (half-open) and reset on success/failure.
                 self._state = "HALF_OPEN"
             else:
@@ -71,9 +74,12 @@ class CircuitBreaker:
     # Async helpers ------------------------------------------------------
     async def async_call(
         self, func: Callable[_P, Awaitable[_T]], *args: _P.args, **kwargs: _P.kwargs
-    ) -> _T:  # type: ignore[misc]
+    ) -> _T:
         if self._state == "OPEN":
-            if self._opened_at and (time.monotonic() - self._opened_at) >= self.reset_timeout:
+            if (
+                self._opened_at
+                and (time.monotonic() - self._opened_at) >= self.reset_timeout
+            ):
                 self._state = "HALF_OPEN"
             else:
                 raise CircuitBreakerOpenError
@@ -89,4 +95,4 @@ class CircuitBreaker:
             if self._state == "HALF_OPEN":
                 self._reset()
             self._failures = 0
-            return result 
+            return result

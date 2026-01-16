@@ -10,4 +10,5 @@ def get_application() -> FastAPI:
     app.mount("/metrics", metrics_app)
     return app
 
-app = get_application() 
+
+app = get_application()

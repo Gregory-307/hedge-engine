@@ -38,4 +38,4 @@ async def test_circuit_breaker_trips(monkeypatch):
 
     # Ensure circuit breaker state is OPEN
     with pytest.raises(CircuitBreakerOpenError):
-        await DecisionLogger._cb.async_call(lambda: None)  # type: ignore 
+        await DecisionLogger._cb.async_call(lambda: None)  # type: ignore

@@ -13,10 +13,16 @@ router = APIRouter()
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
+
 class HedgeRequest(BaseModel):
     asset: Literal["BTC", "ETH", "LTC", "XRP"]
-    amount_usd: float = Field(..., gt=0, le=1e12, description="Position size in USD to hedge")
-    override_score: float | None = Field(None, ge=0.0, le=1.0, description="Manual score override (0-1)")
+    amount_usd: float = Field(
+        ..., gt=0, le=1e12, description="Position size in USD to hedge"
+    )
+    override_score: float | None = Field(
+        None, ge=0.0, le=1.0, description="Manual score override (0-1)"
+    )
+
 
 class HedgeResponse(BaseModel):
     hedge_pct: float
@@ -24,6 +30,7 @@ class HedgeResponse(BaseModel):
     confidence: float
     version: str
     ts_ms: int
+
 
 @router.post("/hedge", response_model=HedgeResponse, status_code=status.HTTP_200_OK)
 async def hedge(req: HedgeRequest, background_tasks: BackgroundTasks) -> HedgeResponse:
@@ -53,4 +60,4 @@ async def hedge(req: HedgeRequest, background_tasks: BackgroundTasks) -> HedgeRe
         version=PACKAGE_VERSION,
         ts_ms=record["ts_ms"],
     )
-    return resp 
+    return resp

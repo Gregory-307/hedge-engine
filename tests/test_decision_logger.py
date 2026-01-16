@@ -28,4 +28,4 @@ def test_queue_on_failure(monkeypatch):
 
     asyncio.run(run())
 
-    assert DecisionLogger._queue.qsize() == 1 
+    assert DecisionLogger._queue.qsize() == 1

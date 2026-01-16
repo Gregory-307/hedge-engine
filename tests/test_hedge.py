@@ -6,6 +6,7 @@ from hedge_engine.decision_logger import DecisionLogger
 
 client = TestClient(app)
 
+
 def test_hedge_endpoint_with_override_score(monkeypatch):
     async def dummy_log(record):
         return None
@@ -19,4 +20,4 @@ def test_hedge_endpoint_with_override_score(monkeypatch):
     assert math.isclose(data["hedge_pct"], expected_pct, rel_tol=1e-6)
     assert math.isclose(data["notional_usd"], 100000 * expected_pct, rel_tol=1e-6)
     assert math.isclose(data["confidence"], expected_conf, rel_tol=1e-6)
-    assert data["version"] == "0.1.0" 
+    assert data["version"] == "0.1.0"

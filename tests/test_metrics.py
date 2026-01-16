@@ -9,4 +9,4 @@ def test_metrics_endpoint():
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/plain")
     # Should contain our custom gauge name
-    assert "hedge_decision_logger_circuit_state" in resp.text 
+    assert "hedge_decision_logger_circuit_state" in resp.text

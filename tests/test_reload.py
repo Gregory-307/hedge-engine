@@ -1,7 +1,8 @@
 from pathlib import Path
 import yaml
 
-from hedge_engine.sizer import compute_hedge, _CURVE_CACHE, _LAST_MTIME, settings
+from hedge_engine import sizer
+from hedge_engine.sizer import compute_hedge, _CURVE_CACHE, settings
 
 
 def test_hot_reload(tmp_path: Path):
@@ -26,10 +27,9 @@ def test_hot_reload(tmp_path: Path):
 
     # Ensure cache invalidated
     _CURVE_CACHE.clear()
-    global _LAST_MTIME  # type: ignore[global-variable-annotation]
-    _LAST_MTIME = None  # type: ignore[misc]
+    sizer._LAST_MTIME = None  # type: ignore[attr-defined]
 
     new_hedge, _ = compute_hedge(0.5, depth1pct_usd=5_000_000)
 
     assert new_hedge != base_hedge
-    assert new_hedge > base_hedge 
+    assert new_hedge > base_hedge

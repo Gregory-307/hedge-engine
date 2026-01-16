@@ -1,4 +1,0 @@
-# file: D:\OneDrive\Documents\GitHub\hedge-engine\hedge_engine\decision_logger.py
-# hypothesis_version: 6.135.31
-
-[1800, '+asyncpg', '+psycopg2', 'DecisionLogger']

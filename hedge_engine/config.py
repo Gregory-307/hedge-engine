@@ -1,10 +1,12 @@
 from pathlib import Path
+
 try:
     from pydantic_settings import BaseSettings
 except ImportError:  # pragma: no cover
     from pydantic import BaseSettings  # type: ignore
 from typing import Literal
 from pydantic import Field
+
 
 class Settings(BaseSettings):
     env: Literal["dev", "prod"] = "dev"
@@ -15,4 +17,4 @@ class Settings(BaseSettings):
     stale_score_s: int = 3
 
     class Config:
-        env_prefix = "HE_" 
+        env_prefix = "HE_"
