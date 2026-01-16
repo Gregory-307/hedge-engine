@@ -1,13 +1,13 @@
 from fastapi import APIRouter, status, BackgroundTasks
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Literal
 from datetime import datetime, timezone
 from .sizer import compute_hedge
-from .config import Settings
 from . import __version__ as PACKAGE_VERSION
 from .decision_logger import DecisionLogger
 
 router = APIRouter()
+
 
 @router.get("/healthz", status_code=status.HTTP_200_OK)
 async def healthz() -> dict[str, str]:
@@ -15,8 +15,8 @@ async def healthz() -> dict[str, str]:
 
 class HedgeRequest(BaseModel):
     asset: Literal["BTC", "ETH", "LTC", "XRP"]
-    amount_usd: float
-    override_score: float | None = None
+    amount_usd: float = Field(..., gt=0, le=1e12, description="Position size in USD to hedge")
+    override_score: float | None = Field(None, ge=0.0, le=1.0, description="Manual score override (0-1)")
 
 class HedgeResponse(BaseModel):
     hedge_pct: float
@@ -27,7 +27,6 @@ class HedgeResponse(BaseModel):
 
 @router.post("/hedge", response_model=HedgeResponse, status_code=status.HTTP_200_OK)
 async def hedge(req: HedgeRequest, background_tasks: BackgroundTasks) -> HedgeResponse:
-    settings = Settings()  # fresh env overrides
     # Integration points: In production, these values come from upstream services:
     # - score: sentiment-pipeline publishes to Redis channel `sentiment:latest:{asset}`
     # - depth_usd: order-book service writes to ClickHouse (depth at ±1% from mid)
