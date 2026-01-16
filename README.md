@@ -198,6 +198,47 @@ The curve is **monotonic** — higher scores always produce equal or higher hedg
 
 ---
 
+## Validation Status
+
+> **Transparency note**: This section documents what's evidence-backed vs what requires validation.
+
+### What's Backed by Research
+
+The architectural approach is grounded in peer-reviewed literature (12 papers, 2019-2025):
+
+| Finding | Source | Implication |
+|---------|--------|-------------|
+| Sentiment predicts volume/volatility, not returns | Economics Letters 2019 | Use as risk signal, not alpha |
+| Neutral tweets ↑ liquidity; negative ↑ volatility | MDPI Data 2025 | Liquidity weighting makes sense |
+| Signals decay fast (<24h for sentiment) | Multiple sources | Staleness rejection is correct |
+| Bot manipulation distorts signals | Finance Research Letters 2022 | Upstream filtering required |
+| ~55-60% directional accuracy ceiling | Multiple sources | Don't over-rely on sentiment alone |
+
+**Evidence supports**: Using sentiment as a *hedging trigger* (risk management) rather than a *return predictor* (alpha generation).
+
+### What's NOT Validated (Placeholder Values)
+
+| Component | Current Value | Status |
+|-----------|---------------|--------|
+| Spline knots | `{0→5%, 0.3→25%, 0.7→75%, 1→100%}` | Placeholder - needs optimization |
+| Liquidity weight formula | `log1p(depth) / log1p(10M)` | Reasonable guess - needs tuning |
+| Default depth | $5M USD | Arbitrary - should come from live data |
+| Confidence calculation | `min(liquidity_weight, 1.0)` | Simplified - needs research |
+
+### Validation Roadmap (Not Yet Implemented)
+
+To move from hypothesis to proven strategy:
+
+1. **Walk-forward backtesting** on 2017-2024 crypto data
+2. **Parameter optimization** for spline knots via grid search
+3. **Live paper trading** with Δspread and slippage metrics
+4. **A/B testing** against baseline (fixed hedge %)
+5. **Drawdown analysis** during crisis periods (May 2021, Nov 2022 FTX)
+
+See `MasterPlan.md` and `research_evidence_matrix.md` for full literature review.
+
+---
+
 ## Configuration
 
 Environment variables (prefix `HE_`):
