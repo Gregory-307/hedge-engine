@@ -44,3 +44,4 @@ tags
 
 # Logs
 logs/ .hypothesis/
+.hypothesis/

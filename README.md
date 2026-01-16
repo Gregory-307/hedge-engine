@@ -1,6 +1,6 @@
 # Hedge-Engine
 
-**Low-latency hedge-sizing microservice** — the decision layer of the Crypto Swing Analysis Suite.
+**General-purpose signal → hedge sizing engine for quants.**
 
 [![CI](https://github.com/Gregory-307/hedge-engine/actions/workflows/ci.yaml/badge.svg)](https://github.com/Gregory-307/hedge-engine/actions/workflows/ci.yaml)
 [![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/)
@@ -11,15 +11,24 @@
 
 ## What It Does
 
-Takes a **sentiment score** (0.0–1.0) and **order-book liquidity depth**, returns a **hedge percentage** via monotonic spline interpolation.
+Takes **any normalized signal** (0.0–1.0) and **liquidity depth**, returns a **hedge percentage** via configurable monotonic spline interpolation.
 
 ```
-Input:  score=0.72, depth=$5M  →  Output: hedge 68% of position
+Signal (0-1) + Liquidity → Hedge Percentage
 ```
+
+**Use cases:**
+- Sentiment signals → hedge sizing
+- Volatility regime → position scaling
+- Momentum indicators → risk adjustment
+- Funding rates → crowding protection
+- Any custom signal → configurable response curve
 
 **Key specs:**
 - Sub-50 µs compute latency (tested)
-- Hot-reload sizing curve without restart
+- Signal-agnostic (works with any 0-1 normalized input)
+- Configurable spline curves per signal type
+- Hot-reload curves without restart
 - Circuit breaker for DB failures
 - Immutable audit trail of all decisions
 
@@ -27,67 +36,60 @@ Input:  score=0.72, depth=$5M  →  Output: hedge 68% of position
 
 ## System Architecture
 
-Hedge-engine is the **final decision layer** in a real-time crypto market intelligence system:
+Hedge-engine is **signal-agnostic** — it maps any normalized score to hedge sizing:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                      CRYPTO SWING ANALYSIS SUITE                            │
+│                         SIGNAL SOURCES (Examples)                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│   ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐        │
-│   │  web-search-sdk │    │  twitter-stack  │    │  Market Data    │        │
-│   │  ─────────────  │    │  ────────────   │    │  ───────────    │        │
-│   │  • Google News  │    │  • Tweet ingest │    │  • CoinGecko    │        │
-│   │  • Wikipedia    │    │  • Account mgmt │    │  • Order books  │        │
-│   │  • Paywalls     │    │  • Proxy rotate │    │  • On-chain     │        │
-│   └────────┬────────┘    └────────┬────────┘    └────────┬────────┘        │
-│            │                      │                      │                  │
-│            └──────────────┬───────┴──────────────────────┘                  │
-│                           ▼                                                 │
-│              ┌────────────────────────┐                                     │
-│              │   sentiment-pipeline   │                                     │
-│              │   ──────────────────   │                                     │
-│              │   • VADER + LLM        │                                     │
-│              │   • Technical analysis │                                     │
-│              │   • 10+ coefficients   │                                     │
-│              │   • 96.2% test pass    │                                     │
-│              └───────────┬────────────┘                                     │
-│                          │                                                  │
-│                          │ Redis pub/sub                                    │
-│                          │ sentiment:latest:{asset}                         │
-│                          ▼                                                  │
-│   ┌──────────────────────────────────────────────────────────────────┐     │
-│   │                      ★ HEDGE-ENGINE ★                            │     │
-│   │   ────────────────────────────────────────────────────────────   │     │
-│   │                                                                  │     │
-│   │   score (0-1) ──┐                                                │     │
-│   │                 ├──► Monotonic Spline ──► hedge_pct (0-100%)    │     │
-│   │   depth ($) ────┘    (configurable YAML)                         │     │
-│   │                                                                  │     │
-│   │   Features:                                                      │     │
-│   │   • POST /hedge      - sizing recommendation                     │     │
-│   │   • GET /healthz     - liveness probe                            │     │
-│   │   • GET /metrics     - Prometheus metrics                        │     │
-│   │   • Circuit breaker  - DB failure resilience                     │     │
-│   │   • Decision logging - immutable audit trail                     │     │
-│   │   • <50µs latency    - real-time capable                         │     │
-│   │                                                                  │     │
-│   └──────────────────────────────────────────────────────────────────┘     │
-│                          │                                                  │
-│                          ▼                                                  │
-│                   Trading Systems                                           │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐       │
+│   │  Sentiment  │  │ Volatility  │  │  Momentum   │  │   Funding   │       │
+│   │  ─────────  │  │  ─────────  │  │  ─────────  │  │  ─────────  │       │
+│   │  Twitter    │  │  Realized   │  │  RSI/MACD   │  │  Perp rates │       │
+│   │  News       │  │  Implied    │  │  Mean rev   │  │  OI delta   │       │
+│   │  Reddit     │  │  VIX proxy  │  │  Trend str  │  │  Basis      │       │
+│   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘       │
+│          │                │                │                │               │
+│          ▼                ▼                ▼                ▼               │
+│   ┌─────────────────────────────────────────────────────────────────┐      │
+│   │                    NORMALIZER (0-1 scale)                       │      │
+│   │   Raw signal → percentile rank / min-max / z-score clip        │      │
+│   └─────────────────────────────┬───────────────────────────────────┘      │
+│                                 │                                          │
+│                                 ▼                                          │
+│   ┌─────────────────────────────────────────────────────────────────┐      │
+│   │                    ★ HEDGE-ENGINE ★                             │      │
+│   │   ─────────────────────────────────────────────────────────     │      │
+│   │                                                                 │      │
+│   │   normalized     ┌─────────────────┐                            │      │
+│   │   score (0-1) ──►│ Monotonic Spline │──► hedge_pct (0-100%)    │      │
+│   │   depth ($) ────►│ (per signal type)│    + confidence          │      │
+│   │                  └─────────────────┘                            │      │
+│   │                                                                 │      │
+│   │   • Configurable curves per signal type (YAML)                  │      │
+│   │   • Liquidity weighting (dampens in thin markets)               │      │
+│   │   • Multi-signal aggregation (weighted combination)             │      │
+│   │   • Sub-50µs latency, production-ready                          │      │
+│   │                                                                 │      │
+│   └─────────────────────────────────────────────────────────────────┘      │
+│                                 │                                          │
+│                                 ▼                                          │
+│                        Trading / Execution                                 │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Related Repositories
+### Example: Crypto Swing Analysis Suite
+
+One implementation uses hedge-engine as the decision layer for sentiment-driven hedging:
 
 | Repository | Purpose | Status |
 |------------|---------|--------|
 | [web-search-sdk](https://github.com/Gregory-307/web-search-sdk) | Async web scraping (news, Wikipedia, paywalls) | Production |
 | [twitter-stack](https://github.com/Gregory-307/twitter-stack) | Twitter scraping with account/proxy management | Production |
 | [sentiment-pipeline](https://github.com/Gregory-307/sentiment-pipeline) | Real-time sentiment analysis & coefficient generation | Production |
-| **hedge-engine** (this repo) | Score → hedge sizing decision layer | Production |
+| **hedge-engine** (this repo) | Signal → hedge sizing decision layer | Production |
 
 ---
 
