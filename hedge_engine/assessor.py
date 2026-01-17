@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from loguru import logger
+
 from .models import (
     Action,
     HedgeCost,
@@ -17,6 +19,7 @@ from .models import (
 def calculate_pnl_scenarios(
     position: InventoryPosition,
     market: MarketConditions,
+    config: RiskConfig,
     hedge_pct: float = 0.0,
 ) -> PnLScenarios:
     """
@@ -25,10 +28,13 @@ def calculate_pnl_scenarios(
     Args:
         position: Current inventory position
         market: Current market conditions
+        config: Risk configuration with scenario move percentages
         hedge_pct: Fraction of position hedged (0-1)
     """
     size = position.size
     current_price = market.current_price
+    large_move = config.large_move_pct
+    small_move = config.small_move_pct
 
     # P&L calculation: size already encodes direction
     # Long (size > 0): profits on up moves, loses on down moves
@@ -37,27 +43,27 @@ def calculate_pnl_scenarios(
         price_change = current_price * move_pct
         return size * price_change
 
-    unhedged_down_5 = pnl_at_move(-0.05)
-    unhedged_down_2 = pnl_at_move(-0.02)
-    unhedged_up_2 = pnl_at_move(0.02)
-    unhedged_up_5 = pnl_at_move(0.05)
+    unhedged_down_large = pnl_at_move(-large_move)
+    unhedged_down_small = pnl_at_move(-small_move)
+    unhedged_up_small = pnl_at_move(small_move)
+    unhedged_up_large = pnl_at_move(large_move)
 
     # Hedged P&L (hedge reduces exposure by hedge_pct)
     unhedged_fraction = 1.0 - hedge_pct
-    hedged_down_5 = unhedged_down_5 * unhedged_fraction
-    hedged_down_2 = unhedged_down_2 * unhedged_fraction
-    hedged_up_2 = unhedged_up_2 * unhedged_fraction
-    hedged_up_5 = unhedged_up_5 * unhedged_fraction
+    hedged_down_large = unhedged_down_large * unhedged_fraction
+    hedged_down_small = unhedged_down_small * unhedged_fraction
+    hedged_up_small = unhedged_up_small * unhedged_fraction
+    hedged_up_large = unhedged_up_large * unhedged_fraction
 
     return PnLScenarios(
-        move_down_5pct=unhedged_down_5,
-        move_down_2pct=unhedged_down_2,
-        move_up_2pct=unhedged_up_2,
-        move_up_5pct=unhedged_up_5,
-        hedged_down_5pct=hedged_down_5,
-        hedged_down_2pct=hedged_down_2,
-        hedged_up_2pct=hedged_up_2,
-        hedged_up_5pct=hedged_up_5,
+        move_down_5pct=unhedged_down_large,
+        move_down_2pct=unhedged_down_small,
+        move_up_2pct=unhedged_up_small,
+        move_up_5pct=unhedged_up_large,
+        hedged_down_5pct=hedged_down_large,
+        hedged_down_2pct=hedged_down_small,
+        hedged_up_2pct=hedged_up_small,
+        hedged_up_5pct=hedged_up_large,
     )
 
 
@@ -65,6 +71,7 @@ def estimate_hedge_cost(
     position: InventoryPosition,
     market: MarketConditions,
     hedge_pct: float,
+    config: RiskConfig,
 ) -> HedgeCost:
     """
     Estimate cost of hedging a position.
@@ -82,29 +89,32 @@ def estimate_hedge_cost(
     # Positive funding = longs pay shorts
     # If we're hedging a long (going short perp), we RECEIVE funding if rate > 0
     # If we're hedging a short (going long perp), we PAY funding if rate > 0
-    daily_funding_rate = market.perp_funding_rate / 365
+    daily_funding_rate = market.perp_funding_rate / config.days_per_year
     funding_cost_1d = hedge_notional * daily_funding_rate
     if position.is_long:
         # Shorting perp to hedge long: receive funding if rate > 0
         funding_cost_1d = -funding_cost_1d
     # else: longing perp to hedge short: pay funding if rate > 0
 
-    # Choose instrument
+    # Choose instrument based on funding rate threshold
+    threshold = config.funding_rate_threshold
     if position.is_long:
         # Hedge long by shorting
         # Prefer perp if funding is favorable (we receive), else spot
-        if market.perp_funding_rate > 0.02:  # High funding, we receive
+        if market.perp_funding_rate > threshold:
             instrument = HedgeInstrument.PERP_SHORT
         else:
             instrument = HedgeInstrument.SPOT_SELL
     else:
         # Hedge short by longing
-        if market.perp_funding_rate < -0.02:  # Negative funding, shorts receive
+        if market.perp_funding_rate < -threshold:
             instrument = HedgeInstrument.PERP_LONG
         else:
             instrument = HedgeInstrument.SPOT_BUY
 
-    total_cost = spread_cost_usd + max(0, funding_cost_1d)
+    # Funding can be negative (we receive) which reduces total cost
+    # But total cost can't go negative (we can't be paid to hedge)
+    total_cost = max(0, spread_cost_usd + funding_cost_1d)
     total_cost_bps = (total_cost / hedge_notional) * 10000 if hedge_notional > 0 else 0
 
     return HedgeCost(
@@ -128,51 +138,91 @@ def calculate_risk_score(
 
     Higher = more urgent to hedge.
 
-    Factors:
-    - Potential loss vs threshold
-    - Position age
-    - Volatility regime
-    - Size relative to liquidity
+    Factors (weights from config, default sum to 100):
+    - Loss severity: 0-loss_weight points (potential loss vs thresholds, vol-adjusted)
+    - Position age: 0-age_weight points (time held vs limits)
+    - Volatility regime: 0-vol_weight points (current market vol)
+    - Size vs liquidity: 0-liquidity_weight points (position size relative to depth)
+
+    See RiskConfig docstring for design note on intentional volatility double-counting.
     """
     score = 0.0
     notional = abs(position.size * market.current_price)
 
-    # 1. Loss severity (0-30 points)
-    # Volatility-adjusted: in low vol markets, 5% moves are unlikely
-    # Scale potential loss by how likely it is given current volatility
+    # Handle zero-size position
+    if notional == 0:
+        return 0.0
+
+    # 1. Loss severity (0 to loss_weight points)
+    # Uses hedge_trigger_loss_pct as the "concerning" threshold
+    # and max_loss_pct as the "critical" threshold
     worst_loss = abs(min(pnl_scenarios.move_down_5pct, pnl_scenarios.move_up_5pct))
-    loss_pct = worst_loss / notional if notional > 0 else 0
-    # Vol adjustment: 5% move is ~1.7 daily sigma at 3% vol, but could be < 1 sigma at 8% vol
-    vol_multiple = 0.05 / market.volatility_1d if market.volatility_1d > 0 else 2.0
-    vol_adjustment = min(1.0, 1.0 / vol_multiple)  # Low vol = less concern
-    loss_score = min(30, (loss_pct / config.max_loss_pct) * 30 * vol_adjustment)
+    loss_pct = worst_loss / notional
+
+    # Vol adjustment: scale risk based on current vol vs baseline
+    # Low vol → adjustment < 1.0 (reduces loss_score)
+    # Baseline vol → adjustment = 1.0
+    # High vol → adjustment > 1.0 (increases loss_score)
+    if market.volatility_1d > 0:
+        vol_adjustment = market.volatility_1d / config.baseline_vol
+        vol_adjustment = min(config.vol_adj_max, max(config.vol_adj_min, vol_adjustment))
+    else:
+        vol_adjustment = config.vol_adj_max  # No data = assume high risk
+
+    # Scale: 0 at no loss, loss_trigger_points at trigger, loss_weight at max
+    above_trigger_points = config.loss_weight - config.loss_trigger_points
+    if loss_pct <= config.hedge_trigger_loss_pct:
+        loss_score = (loss_pct / config.hedge_trigger_loss_pct) * config.loss_trigger_points
+    else:
+        # Above trigger: scale from loss_trigger_points to loss_weight
+        excess = loss_pct - config.hedge_trigger_loss_pct
+        remaining = config.max_loss_pct - config.hedge_trigger_loss_pct
+        if remaining > 0:
+            loss_score = config.loss_trigger_points + (excess / remaining) * above_trigger_points
+        else:
+            loss_score = config.loss_weight
+
+    loss_score = min(config.loss_weight, loss_score * vol_adjustment)
     score += loss_score
 
-    # 2. Position age (0-20 points)
-    age_ratio = position.age_minutes / config.max_hold_minutes
-    age_score = min(20, age_ratio * 20)
+    # 2. Position age (0 to age_weight points)
+    # Non-linear: accelerates after urgent_hold_minutes
+    above_urgent_points = config.age_weight - config.age_normal_points
+    if position.age_minutes <= config.urgent_hold_minutes:
+        age_score = (position.age_minutes / config.urgent_hold_minutes) * config.age_normal_points
+    else:
+        # Urgent phase (accelerated)
+        excess = position.age_minutes - config.urgent_hold_minutes
+        remaining = config.max_hold_minutes - config.urgent_hold_minutes
+        if remaining > 0:
+            age_score = config.age_normal_points + (excess / remaining) * above_urgent_points
+        else:
+            age_score = config.age_weight
+
+    age_score = min(config.age_weight, age_score)
     score += age_score
 
-    # 3. Volatility regime (0-25 points)
+    # 3. Volatility regime (0 to vol_weight points)
+    # Smooth scaling from 0 to extreme threshold
     if market.volatility_1d >= config.extreme_vol_threshold:
-        vol_score = 25.0
-    elif market.volatility_1d >= config.high_vol_threshold:
-        vol_score = 15.0
+        vol_score = config.vol_weight
     else:
-        vol_score = market.volatility_1d / config.high_vol_threshold * 10
+        vol_score = (market.volatility_1d / config.extreme_vol_threshold) * config.vol_weight
     score += vol_score
 
-    # 4. Size vs liquidity (0-15 points)
-    # If position is large relative to available liquidity, more urgent
+    # 4. Size vs liquidity (0 to liquidity_weight points)
+    # For long positions, we care about bid depth (we'd sell into bids)
+    # For short positions, we care about ask depth (we'd buy from asks)
     relevant_depth = market.bid_depth_usd if position.is_long else market.ask_depth_usd
     if relevant_depth > 0:
         size_ratio = notional / relevant_depth
-        liquidity_score = min(15, size_ratio * 15)
+        # Square root scaling: small positions low risk, diminishing returns for large
+        liquidity_score = min(config.liquidity_weight, (size_ratio ** 0.5) * config.liquidity_weight)
     else:
-        liquidity_score = 15  # No liquidity = max concern
+        liquidity_score = config.liquidity_weight  # No liquidity = max concern
     score += liquidity_score
 
-    return min(100, max(0, score))
+    return float(min(100, max(0, score)))
 
 
 def determine_action(
@@ -196,10 +246,9 @@ def determine_action(
             f"Hold and wait for better conditions.",
         )
 
-    # Decision tree based on risk score
-    # Thresholds calibrated so normal market conditions result in HOLD
-    if risk_score >= 75:
-        # Critical risk
+    # Decision tree based on risk score using configurable thresholds
+    if risk_score >= config.liquidate_threshold:
+        # Critical risk - liquidate immediately
         return (
             Action.LIQUIDATE,
             1.0,
@@ -207,7 +256,7 @@ def determine_action(
             f"Position too risky to hold. Liquidate immediately.",
         )
 
-    if risk_score >= 60:
+    if risk_score >= config.hedge_full_threshold:
         # High risk - full hedge
         return (
             Action.HEDGE_FULL,
@@ -217,9 +266,9 @@ def determine_action(
             f"Cost: ${hedge_cost.total_cost_usd:.2f} ({hedge_cost.total_cost_bps:.1f}bps).",
         )
 
-    if risk_score >= 45:
+    if risk_score >= config.hedge_partial_threshold:
         # Moderate risk - partial hedge
-        hedge_pct = 0.5
+        hedge_pct = config.hedge_partial_pct
         return (
             Action.HEDGE_PARTIAL,
             hedge_pct,
@@ -228,9 +277,9 @@ def determine_action(
             f"Reduces downside while keeping upside.",
         )
 
-    if risk_score >= 35:
+    if risk_score >= config.reduce_threshold:
         # Low-moderate - small hedge or reduce
-        hedge_pct = 0.25
+        hedge_pct = config.reduce_pct
         return (
             Action.REDUCE,
             hedge_pct,
@@ -266,11 +315,35 @@ def assess_inventory_risk(
     if config is None:
         config = RiskConfig()
 
+    notional = abs(position.size * market.current_price)
+
+    # Handle zero-size (flat) position
+    if position.size == 0:
+        logger.info(
+            "Flat position assessed",
+            extra={"asset": position.asset, "action": "HOLD", "risk_score": 0},
+        )
+        return HedgeRecommendation(
+            action=Action.HOLD,
+            hedge_pct=0.0,
+            suggested_hedge=None,
+            pnl_scenarios=PnLScenarios(
+                move_down_5pct=0, move_down_2pct=0,
+                move_up_2pct=0, move_up_5pct=0,
+            ),
+            risk_score=0.0,
+            reasoning="No position to assess (size = 0).",
+            re_evaluate_minutes=config.low_risk_reeval_minutes,
+            position_notional_usd=0.0,
+            # unrealized_pnl is passed through for user context, not used in calculations
+            current_unrealized_pnl=0.0,
+        )
+
     # Calculate P&L scenarios (unhedged)
-    pnl_scenarios = calculate_pnl_scenarios(position, market, hedge_pct=0.0)
+    pnl_scenarios = calculate_pnl_scenarios(position, market, config, hedge_pct=0.0)
 
     # Estimate cost of a full hedge (we'll adjust based on recommendation)
-    full_hedge_cost = estimate_hedge_cost(position, market, hedge_pct=1.0)
+    full_hedge_cost = estimate_hedge_cost(position, market, hedge_pct=1.0, config=config)
 
     # Calculate risk score
     risk_score = calculate_risk_score(position, market, pnl_scenarios, config)
@@ -280,20 +353,49 @@ def assess_inventory_risk(
         risk_score, position, market, full_hedge_cost, config
     )
 
+    # Log the assessment
+    logger.info(
+        "Position assessed",
+        extra={
+            "asset": position.asset,
+            "size": position.size,
+            "notional_usd": notional,
+            "risk_score": round(risk_score, 1),
+            "action": action.value,
+            "hedge_pct": hedge_pct,
+        },
+    )
+
+    # Log high-risk situations at warning level
+    if action == Action.LIQUIDATE:
+        logger.warning(
+            "LIQUIDATE recommended",
+            extra={"asset": position.asset, "risk_score": risk_score},
+        )
+    elif action in (Action.HEDGE_FULL, Action.HEDGE_PARTIAL):
+        logger.info(
+            "Hedge recommended",
+            extra={
+                "asset": position.asset,
+                "hedge_pct": hedge_pct,
+                "instrument": full_hedge_cost.instrument.value,
+            },
+        )
+
     # Calculate actual hedge cost and hedged scenarios
     if hedge_pct > 0:
-        actual_hedge_cost = estimate_hedge_cost(position, market, hedge_pct)
-        pnl_scenarios = calculate_pnl_scenarios(position, market, hedge_pct)
+        actual_hedge_cost = estimate_hedge_cost(position, market, hedge_pct, config)
+        pnl_scenarios = calculate_pnl_scenarios(position, market, config, hedge_pct)
     else:
         actual_hedge_cost = None
 
-    # Determine re-evaluation time
-    if risk_score >= 60:
-        re_eval = 15  # High risk: check every 15 min
-    elif risk_score >= 40:
-        re_eval = 60  # Moderate: hourly
+    # Determine re-evaluation time based on configurable thresholds
+    if risk_score >= config.high_risk_reeval_threshold:
+        re_eval = config.high_risk_reeval_minutes
+    elif risk_score >= config.moderate_risk_reeval_threshold:
+        re_eval = config.moderate_risk_reeval_minutes
     else:
-        re_eval = 240  # Low: every 4 hours
+        re_eval = config.low_risk_reeval_minutes
 
     return HedgeRecommendation(
         action=action,
@@ -304,5 +406,6 @@ def assess_inventory_risk(
         reasoning=reasoning,
         re_evaluate_minutes=re_eval,
         position_notional_usd=abs(position.size * market.current_price),
+        # unrealized_pnl is passed through for user context, not used in calculations
         current_unrealized_pnl=position.unrealized_pnl,
     )

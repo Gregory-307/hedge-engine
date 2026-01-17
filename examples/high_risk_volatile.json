@@ -1,0 +1,18 @@
+{
+  "description": "High risk: Extreme volatility, old position, price moved against us",
+  "expected_action": "HEDGE_FULL or LIQUIDATE",
+  "position": {
+    "asset": "BTC",
+    "size": 20.0,
+    "entry_price": 48000.0,
+    "age_minutes": 400
+  },
+  "market": {
+    "current_price": 44000.0,
+    "volatility_1d": 0.09,
+    "spot_spread_bps": 15.0,
+    "perp_funding_rate": 0.15,
+    "bid_depth_usd": 2000000,
+    "ask_depth_usd": 2000000
+  }
+}

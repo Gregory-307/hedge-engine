@@ -1,0 +1,18 @@
+{
+  "description": "Moderate risk: Medium vol, aging position, reasonable liquidity",
+  "expected_action": "REDUCE or HEDGE_PARTIAL",
+  "position": {
+    "asset": "BTC",
+    "size": 10.0,
+    "entry_price": 45000.0,
+    "age_minutes": 240
+  },
+  "market": {
+    "current_price": 44500.0,
+    "volatility_1d": 0.045,
+    "spot_spread_bps": 4.0,
+    "perp_funding_rate": 0.06,
+    "bid_depth_usd": 4000000,
+    "ask_depth_usd": 4000000
+  }
+}

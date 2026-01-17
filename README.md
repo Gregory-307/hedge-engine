@@ -148,20 +148,22 @@ The risk score is calculated from four factors:
 
 | Factor | Weight | Description |
 |--------|--------|-------------|
-| **Loss Severity** | 0-30 | Volatility-adjusted potential loss vs your max tolerance |
+| **Loss Severity** | 0-35 | Volatility-adjusted potential loss vs your max tolerance |
 | **Position Age** | 0-20 | Older positions = higher risk (inventory should turn over) |
 | **Volatility Regime** | 0-25 | High vol markets require faster decisions |
-| **Size vs Liquidity** | 0-15 | Large position relative to book depth = harder to exit |
+| **Size vs Liquidity** | 0-20 | Large position relative to book depth = harder to exit |
 
-### Action Thresholds
+### Action Thresholds (Configurable)
+
+Default thresholds (all configurable via `config`):
 
 | Risk Score | Action | Hedge % |
 |------------|--------|---------|
-| 75+ | `LIQUIDATE` | 100% |
-| 60-74 | `HEDGE_FULL` | 100% |
-| 45-59 | `HEDGE_PARTIAL` | 50% |
-| 35-44 | `REDUCE` | 25% |
-| 0-34 | `HOLD` | 0% |
+| 85+ | `LIQUIDATE` | 100% |
+| 70-84 | `HEDGE_FULL` | 100% |
+| 55-69 | `HEDGE_PARTIAL` | 50% |
+| 40-54 | `REDUCE` | 25% |
+| 0-39 | `HOLD` | 0% |
 
 ### Hedge Instrument Selection
 
@@ -201,7 +203,17 @@ Pass custom risk parameters in the `config` field:
 | `max_loss_pct` | 0.05 | Max acceptable loss (5%) |
 | `hedge_trigger_loss_pct` | 0.02 | Start hedging at this loss |
 | `max_hold_minutes` | 480 | Max hold time (8 hours) |
+| `urgent_hold_minutes` | 240 | Age where urgency increases (4 hours) |
 | `max_hedge_cost_bps` | 50 | Don't hedge if cost > 50bps |
+| `baseline_vol` | 0.05 | Baseline volatility for adjustment |
+| `extreme_vol_threshold` | 0.08 | Vol threshold for max risk |
+| `liquidate_threshold` | 85 | Risk score for LIQUIDATE action |
+| `hedge_full_threshold` | 70 | Risk score for HEDGE_FULL action |
+| `hedge_partial_threshold` | 55 | Risk score for HEDGE_PARTIAL action |
+| `reduce_threshold` | 40 | Risk score for REDUCE action |
+| `hedge_partial_pct` | 0.5 | Hedge percentage for partial hedge |
+| `reduce_pct` | 0.25 | Reduction percentage for REDUCE action |
+| `funding_rate_threshold` | 0.02 | Funding rate to prefer perp over spot |
 
 ---
 

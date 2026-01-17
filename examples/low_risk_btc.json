@@ -1,0 +1,18 @@
+{
+  "description": "Low risk: Normal market, fresh position, good liquidity",
+  "expected_action": "HOLD",
+  "position": {
+    "asset": "BTC",
+    "size": 5.0,
+    "entry_price": 45000.0,
+    "age_minutes": 30
+  },
+  "market": {
+    "current_price": 45100.0,
+    "volatility_1d": 0.025,
+    "spot_spread_bps": 2.0,
+    "perp_funding_rate": 0.03,
+    "bid_depth_usd": 10000000,
+    "ask_depth_usd": 10000000
+  }
+}

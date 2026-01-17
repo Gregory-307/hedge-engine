@@ -1,0 +1,18 @@
+{
+  "description": "Short position in a squeeze: Price rising, negative funding (shorts pay)",
+  "expected_action": "HEDGE_PARTIAL or HEDGE_FULL",
+  "position": {
+    "asset": "ETH",
+    "size": -50.0,
+    "entry_price": 2400.0,
+    "age_minutes": 180
+  },
+  "market": {
+    "current_price": 2600.0,
+    "volatility_1d": 0.06,
+    "spot_spread_bps": 5.0,
+    "perp_funding_rate": -0.05,
+    "bid_depth_usd": 3000000,
+    "ask_depth_usd": 3000000
+  }
+}

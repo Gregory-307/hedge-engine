@@ -23,8 +23,6 @@ class HedgeInstrument(str, Enum):
     SPOT_BUY = "spot_buy"
     PERP_SHORT = "perp_short"
     PERP_LONG = "perp_long"
-    PUT_BUY = "put_buy"
-    CALL_BUY = "call_buy"
 
 
 @dataclass
@@ -36,11 +34,6 @@ class InventoryPosition:
     entry_price: float  # Average entry price in USD
     age_minutes: int = 0  # How long position has been held
     unrealized_pnl: float = 0.0  # Current unrealized P&L
-
-    @property
-    def notional_usd(self) -> float:
-        """Position notional in USD at entry."""
-        return abs(self.size * self.entry_price)
 
     @property
     def is_long(self) -> bool:
@@ -61,11 +54,6 @@ class MarketConditions:
     perp_funding_rate: float  # Annualized funding rate (decimal, e.g., 0.05 = 5%)
     bid_depth_usd: float  # Liquidity on bid side at 1%
     ask_depth_usd: float  # Liquidity on ask side at 1%
-
-    @property
-    def mid_spread_cost_bps(self) -> float:
-        """Cost to cross the spread (half the spread)."""
-        return self.spot_spread_bps / 2
 
 
 @dataclass
@@ -115,7 +103,20 @@ class HedgeRecommendation:
 
 @dataclass
 class RiskConfig:
-    """Configurable risk parameters."""
+    """
+    Configurable risk parameters.
+
+    Design Note - Volatility Double-Counting:
+    Volatility affects the risk score in TWO ways (intentional):
+    1. vol_adjustment multiplies loss_score (low vol = less likely to hit loss scenarios)
+    2. vol_score is additive (high vol regime = faster market = needs attention)
+    This creates a non-linear compounding effect where extreme vol has outsized impact,
+    which matches real-world behavior where vol spikes require urgent action.
+    """
+
+    # Scenario move percentages for P&L calculation
+    large_move_pct: float = 0.05  # 5% move for stress scenarios
+    small_move_pct: float = 0.02  # 2% move for moderate scenarios
 
     # Loss thresholds
     max_loss_pct: float = 0.05  # Max acceptable loss (5%)
@@ -129,5 +130,44 @@ class RiskConfig:
     max_hedge_cost_bps: float = 50  # Don't hedge if cost > 50bps
 
     # Volatility thresholds
-    high_vol_threshold: float = 0.04  # 4% daily vol = high
+    baseline_vol: float = 0.05  # 5% daily vol = baseline for vol adjustment
     extreme_vol_threshold: float = 0.08  # 8% daily vol = extreme
+    vol_adj_min: float = 0.3  # Floor for volatility adjustment multiplier
+    vol_adj_max: float = 2.0  # Cap for volatility adjustment multiplier
+
+    # Action thresholds (risk score -> action)
+    liquidate_threshold: int = 85
+    hedge_full_threshold: int = 70
+    hedge_partial_threshold: int = 55
+    reduce_threshold: int = 40
+
+    # Hedge percentages
+    hedge_partial_pct: float = 0.5  # 50% hedge for partial
+    reduce_pct: float = 0.25  # 25% reduction
+
+    # Instrument selection
+    funding_rate_threshold: float = 0.02  # Use perp if funding > 2%
+
+    # Risk score component weights (must sum to 100)
+    loss_weight: float = 35.0  # Max points for loss severity
+    age_weight: float = 20.0  # Max points for position age
+    vol_weight: float = 25.0  # Max points for volatility regime
+    liquidity_weight: float = 20.0  # Max points for size vs liquidity
+
+    # Loss score internal splits
+    loss_trigger_points: float = 15.0  # Points at hedge_trigger_loss_pct
+    # Remaining (loss_weight - loss_trigger_points) allocated above trigger
+
+    # Age score internal splits
+    age_normal_points: float = 10.0  # Points for 0 to urgent_hold_minutes
+    # Remaining (age_weight - age_normal_points) for urgent to max
+
+    # Re-evaluation thresholds and times
+    high_risk_reeval_threshold: float = 60.0  # Score above this = high risk
+    moderate_risk_reeval_threshold: float = 40.0  # Score above this = moderate
+    high_risk_reeval_minutes: int = 15  # Check every 15 min if high risk
+    moderate_risk_reeval_minutes: int = 60  # Hourly if moderate
+    low_risk_reeval_minutes: int = 240  # Every 4 hours if low
+
+    # Funding calculation
+    days_per_year: int = 365  # For annualized funding rate conversion

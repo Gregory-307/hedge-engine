@@ -43,5 +43,11 @@ tags
 .DS_Store
 
 # Logs
-logs/ .hypothesis/
+logs/
+
+# Hypothesis test cache
 .hypothesis/
+
+# Coverage
+.coverage
+htmlcov/
