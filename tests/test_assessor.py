@@ -202,7 +202,7 @@ class TestRiskScore:
     def test_risk_score_calculation_exact(self, long_position, normal_market, default_config):
         """Verify exact risk score formula breakdown."""
         pnl = calculate_pnl_scenarios(long_position, normal_market, default_config)
-        score = calculate_risk_score(long_position, normal_market, pnl, default_config)
+        score, breakdown = calculate_risk_score(long_position, normal_market, pnl, default_config)
 
         # Manual calculation with default config:
         # Loss severity: 5% move = $22,500 loss on $450,000 = 5% loss
@@ -216,6 +216,13 @@ class TestRiskScore:
 
         assert score == pytest.approx(38.875, abs=0.01)
 
+        # Verify breakdown matches expected components
+        assert breakdown.loss_severity == pytest.approx(21.0, abs=0.1)
+        assert breakdown.position_age == pytest.approx(2.5, abs=0.1)
+        assert breakdown.volatility_regime == pytest.approx(9.375, abs=0.1)
+        assert breakdown.size_vs_liquidity == pytest.approx(6.0, abs=0.1)
+        assert breakdown.total == pytest.approx(38.875, abs=0.01)
+
     def test_risk_score_with_custom_weights(self, long_position, normal_market):
         """Custom weight configuration changes score components."""
         # Increase loss weight, decrease others
@@ -224,7 +231,7 @@ class TestRiskScore:
             loss_trigger_points=20.0  # Scale trigger points proportionally
         )
         pnl = calculate_pnl_scenarios(long_position, normal_market, config)
-        score = calculate_risk_score(long_position, normal_market, pnl, config)
+        score, breakdown = calculate_risk_score(long_position, normal_market, pnl, config)
 
         # With higher loss weight, score should be different
         # loss_score = min(50, (20 + (0.03/0.03)*30) * 0.6) = min(50, 50*0.6) = 30
@@ -236,6 +243,7 @@ class TestRiskScore:
         # liq = sqrt(0.09) * 15 = 4.5
         # Total: 30 + 2.5 + 7.5 + 4.5 = 44.5
         assert score == pytest.approx(44.5, abs=0.1)
+        assert breakdown.loss_severity == pytest.approx(30.0, abs=0.1)
 
     def test_risk_score_increases_with_volatility(self, long_position, default_config):
         """Higher volatility increases risk score."""
@@ -253,8 +261,8 @@ class TestRiskScore:
         low_pnl = calculate_pnl_scenarios(long_position, low_vol_market, default_config)
         high_pnl = calculate_pnl_scenarios(long_position, high_vol_market, default_config)
 
-        low_score = calculate_risk_score(long_position, low_vol_market, low_pnl, default_config)
-        high_score = calculate_risk_score(long_position, high_vol_market, high_pnl, default_config)
+        low_score, _ = calculate_risk_score(long_position, low_vol_market, low_pnl, default_config)
+        high_score, _ = calculate_risk_score(long_position, high_vol_market, high_pnl, default_config)
 
         assert high_score > low_score
         # Vol affects both loss_score multiplier AND vol_score component
@@ -268,8 +276,8 @@ class TestRiskScore:
         young_pnl = calculate_pnl_scenarios(young_position, normal_market, default_config)
         old_pnl = calculate_pnl_scenarios(old_position, normal_market, default_config)
 
-        young_score = calculate_risk_score(young_position, normal_market, young_pnl, default_config)
-        old_score = calculate_risk_score(old_position, normal_market, old_pnl, default_config)
+        young_score, _ = calculate_risk_score(young_position, normal_market, young_pnl, default_config)
+        old_score, _ = calculate_risk_score(old_position, normal_market, old_pnl, default_config)
 
         # Age component: young = 30/240 * 10 = 1.25
         # old = 10 + (160/240)*10 = 10 + 6.67 = 16.67
@@ -280,7 +288,7 @@ class TestRiskScore:
     def test_risk_score_bounded_0_100(self, long_position, high_vol_market, default_config):
         """Risk score is always bounded between 0 and 100."""
         pnl = calculate_pnl_scenarios(long_position, high_vol_market, default_config)
-        score = calculate_risk_score(long_position, high_vol_market, pnl, default_config)
+        score, _ = calculate_risk_score(long_position, high_vol_market, pnl, default_config)
 
         assert 0 <= score <= 100
 
@@ -288,9 +296,10 @@ class TestRiskScore:
         """Position with size=0 should have zero risk score."""
         flat = InventoryPosition(asset="BTC", size=0, entry_price=45000.0)
         pnl = calculate_pnl_scenarios(flat, normal_market, default_config)
-        score = calculate_risk_score(flat, normal_market, pnl, default_config)
+        score, breakdown = calculate_risk_score(flat, normal_market, pnl, default_config)
 
         assert score == 0.0
+        assert breakdown.total == 0.0
 
 
 class TestAssessInventoryRisk:
@@ -487,7 +496,7 @@ class TestEdgeCases:
         """Very small position still has base risk components."""
         tiny_position = InventoryPosition(asset="BTC", size=0.001, entry_price=45000.0, age_minutes=0)
         pnl = calculate_pnl_scenarios(tiny_position, normal_market, default_config)
-        score = calculate_risk_score(tiny_position, normal_market, pnl, default_config)
+        score, _ = calculate_risk_score(tiny_position, normal_market, pnl, default_config)
 
         # Even tiny positions have: loss_score (21) + vol_score (9.375) + liquidity (~0)
         # age = 0, so age_score = 0
@@ -502,7 +511,7 @@ class TestEdgeCases:
         )
 
         pnl = calculate_pnl_scenarios(large_position, thin_market, default_config)
-        score = calculate_risk_score(large_position, thin_market, pnl, default_config)
+        score, _ = calculate_risk_score(large_position, thin_market, pnl, default_config)
 
         # Liquidity component: sqrt(4500000/1000000) * 20 = sqrt(4.5) * 20 = 42.4, capped at 20
         assert score > 40  # Elevated due to liquidity
@@ -511,7 +520,7 @@ class TestEdgeCases:
         """Position at max age has max age score component."""
         old_position = InventoryPosition(asset="BTC", size=10.0, entry_price=45000.0, age_minutes=480)
         pnl = calculate_pnl_scenarios(old_position, normal_market, default_config)
-        score = calculate_risk_score(old_position, normal_market, pnl, default_config)
+        score, _ = calculate_risk_score(old_position, normal_market, pnl, default_config)
 
         # Age at max (480): age_score = 10 + (240/240)*10 = 20 (maxed)
         # Total: 21 + 20 + 9.375 + 6 = 56.375
@@ -525,7 +534,7 @@ class TestEdgeCases:
         )
 
         pnl = calculate_pnl_scenarios(long_position, zero_vol_market, default_config)
-        score = calculate_risk_score(long_position, zero_vol_market, pnl, default_config)
+        score, _ = calculate_risk_score(long_position, zero_vol_market, pnl, default_config)
 
         # Zero vol: vol_adjustment = 2.0 (max) -> loss_score = min(35, 35*2.0) = 35
         # Vol regime component = 0 (0/0.08 * 25 = 0)
@@ -543,7 +552,7 @@ class TestEdgeCases:
         )
 
         pnl = calculate_pnl_scenarios(long_position, low_vol_market, config)
-        score = calculate_risk_score(long_position, low_vol_market, pnl, config)
+        score, _ = calculate_risk_score(long_position, low_vol_market, pnl, config)
 
         # Vol adjustment should be floored at 0.5 (not 0.2)
         # loss_score = min(35, 35 * 0.5) = 17.5

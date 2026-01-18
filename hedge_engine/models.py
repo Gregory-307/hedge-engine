@@ -85,6 +85,48 @@ class HedgeCost:
 
 
 @dataclass
+class RiskScoreBreakdown:
+    """
+    Breakdown of risk score components.
+
+    Shows exactly what's contributing to the total score,
+    so traders can understand WHY the score is what it is.
+    """
+
+    loss_severity: float  # Points from potential loss (0-35)
+    position_age: float  # Points from holding time (0-20)
+    volatility_regime: float  # Points from market volatility (0-25)
+    size_vs_liquidity: float  # Points from position size vs depth (0-20)
+    total: float  # Sum of all components (0-100)
+
+    def to_dict(self) -> dict[str, float]:
+        """Convert to dict for API responses."""
+        return {
+            "loss_severity": round(self.loss_severity, 1),
+            "position_age": round(self.position_age, 1),
+            "volatility_regime": round(self.volatility_regime, 1),
+            "size_vs_liquidity": round(self.size_vs_liquidity, 1),
+            "total": round(self.total, 1),
+        }
+
+
+@dataclass
+class PositionSummary:
+    """
+    Quick summary for decision-making.
+
+    The key numbers a trader needs at a glance.
+    """
+
+    worst_case_loss_usd: float  # Biggest loss in scenarios
+    best_case_gain_usd: float  # Biggest gain in scenarios
+    position_side: str  # "LONG" or "SHORT"
+    notional_usd: float  # Position value
+    age_hours: float  # Position age in human-readable form
+    hedge_order: str | None  # Concrete instruction, e.g., "Sell 5.0 BTC via perp_short"
+
+
+@dataclass
 class HedgeRecommendation:
     """Actionable output from risk assessment."""
 
@@ -93,12 +135,16 @@ class HedgeRecommendation:
     suggested_hedge: HedgeCost | None
     pnl_scenarios: PnLScenarios
     risk_score: float  # 0-100 (for quick reference)
+    risk_breakdown: RiskScoreBreakdown  # Component breakdown
     reasoning: str
     re_evaluate_minutes: int  # When to reassess
 
     # Position context
     position_notional_usd: float
     current_unrealized_pnl: float
+
+    # Quick summary for decision-making
+    summary: PositionSummary
 
 
 @dataclass

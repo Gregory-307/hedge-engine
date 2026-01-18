@@ -39,7 +39,19 @@ uvicorn hedge_engine.main:app --reload
 # Docs at http://localhost:8000/docs
 ```
 
-### Assess a Position
+### CLI Quick Assessment
+```bash
+# Assess a position from command line
+python -m hedge_engine.cli assess BTC 10 45000 44000 --vol 0.05 --age 60
+
+# Short position with high volatility
+python -m hedge_engine.cli assess ETH -5 3000 3100 --vol 0.08
+
+# See all options
+python -m hedge_engine.cli assess --help
+```
+
+### Assess a Position (API)
 ```bash
 curl -X POST http://localhost:8000/assess \
   -H "Content-Type: application/json" \
@@ -66,15 +78,30 @@ curl -X POST http://localhost:8000/assess \
 {
   "action": "HEDGE_PARTIAL",
   "hedge_pct": 0.5,
-  "risk_score": 47.3,
-  "reasoning": "Risk score 47/100 (moderate). Recommend 50% hedge via perp_short. Reduces downside while keeping upside.",
+  "risk_score": 59.1,
+  "risk_breakdown": {
+    "loss_severity": 35.0,
+    "position_age": 2.5,
+    "volatility_regime": 15.6,
+    "size_vs_liquidity": 5.9,
+    "total": 59.1
+  },
+  "reasoning": "Risk score 59/100 (moderate). Recommend 50% hedge via perp_short.",
+  "summary": {
+    "worst_case_loss_usd": -22000.0,
+    "best_case_gain_usd": 22000.0,
+    "position_side": "LONG",
+    "notional_usd": 440000.0,
+    "age_hours": 1.0,
+    "hedge_order": "Sell 5 BTC via perp_short"
+  },
   "suggested_hedge": {
     "instrument": "perp_short",
     "size": 5.0,
     "spread_cost_usd": 66.0,
-    "funding_cost_1d_usd": -24.11,
-    "total_cost_usd": 66.0,
-    "total_cost_bps": 3.0
+    "funding_cost_1d_usd": -30.14,
+    "total_cost_usd": 35.86,
+    "total_cost_bps": 1.6
   },
   "pnl_scenarios": {
     "move_down_5pct": -11000.0,
@@ -133,7 +160,9 @@ curl -X POST http://localhost:8000/assess \
 | `action` | string | `HOLD`, `HEDGE_PARTIAL`, `HEDGE_FULL`, `REDUCE`, `LIQUIDATE` |
 | `hedge_pct` | float | Recommended hedge percentage (0.0-1.0) |
 | `risk_score` | float | 0-100 risk score |
+| `risk_breakdown` | object | **What's driving the score** (loss, age, vol, liquidity components) |
 | `reasoning` | string | Human-readable explanation |
+| `summary` | object | **Key decision numbers** (worst/best case, concrete hedge order) |
 | `suggested_hedge` | object | Instrument, size, and cost breakdown |
 | `pnl_scenarios` | object | P&L at ±2% and ±5% market moves |
 | `re_evaluate_minutes` | int | When to reassess (higher risk = sooner) |
@@ -242,6 +271,7 @@ hedge-engine/
 ├── hedge_engine/
 │   ├── main.py       # FastAPI app factory
 │   ├── api.py        # REST endpoints
+│   ├── cli.py        # Command-line interface
 │   ├── assessor.py   # Core risk assessment logic
 │   └── models.py     # Data models
 ├── tests/

@@ -89,6 +89,27 @@ class PnLScenariosResponse(BaseModel):
     hedged_up_5pct: float
 
 
+class RiskBreakdownResponse(BaseModel):
+    """Breakdown of risk score components - shows WHY the score is what it is."""
+
+    loss_severity: float = Field(..., description="Points from potential loss (0-35)")
+    position_age: float = Field(..., description="Points from holding time (0-20)")
+    volatility_regime: float = Field(..., description="Points from market volatility (0-25)")
+    size_vs_liquidity: float = Field(..., description="Points from position size vs depth (0-20)")
+    total: float = Field(..., description="Sum of all components (0-100)")
+
+
+class SummaryResponse(BaseModel):
+    """Quick summary for decision-making - the key numbers at a glance."""
+
+    worst_case_loss_usd: float = Field(..., description="Biggest potential loss")
+    best_case_gain_usd: float = Field(..., description="Biggest potential gain")
+    position_side: str = Field(..., description="LONG, SHORT, or FLAT")
+    notional_usd: float = Field(..., description="Position value in USD")
+    age_hours: float = Field(..., description="Position age in hours")
+    hedge_order: str | None = Field(None, description="Concrete order instruction, e.g., 'Sell 5.0 BTC via perp_short'")
+
+
 class AssessResponse(BaseModel):
     """Output: Risk assessment with actionable recommendation."""
 
@@ -96,7 +117,11 @@ class AssessResponse(BaseModel):
     action: str
     hedge_pct: float
     risk_score: float
+    risk_breakdown: RiskBreakdownResponse  # NEW: shows what's driving the score
     reasoning: str
+
+    # Quick summary for decision-making
+    summary: SummaryResponse  # NEW: key numbers at a glance
 
     # Hedge details (if applicable)
     suggested_hedge: HedgeCostResponse | None
@@ -187,11 +212,30 @@ async def assess(req: AssessRequest) -> AssessResponse:
         hedged_up_5pct=result.pnl_scenarios.hedged_up_5pct,
     )
 
+    risk_breakdown_response = RiskBreakdownResponse(
+        loss_severity=result.risk_breakdown.loss_severity,
+        position_age=result.risk_breakdown.position_age,
+        volatility_regime=result.risk_breakdown.volatility_regime,
+        size_vs_liquidity=result.risk_breakdown.size_vs_liquidity,
+        total=result.risk_breakdown.total,
+    )
+
+    summary_response = SummaryResponse(
+        worst_case_loss_usd=result.summary.worst_case_loss_usd,
+        best_case_gain_usd=result.summary.best_case_gain_usd,
+        position_side=result.summary.position_side,
+        notional_usd=result.summary.notional_usd,
+        age_hours=result.summary.age_hours,
+        hedge_order=result.summary.hedge_order,
+    )
+
     return AssessResponse(
         action=result.action.value,
         hedge_pct=result.hedge_pct,
         risk_score=result.risk_score,
+        risk_breakdown=risk_breakdown_response,
         reasoning=result.reasoning,
+        summary=summary_response,
         suggested_hedge=hedge_response,
         pnl_scenarios=pnl_response,
         position_notional_usd=result.position_notional_usd,

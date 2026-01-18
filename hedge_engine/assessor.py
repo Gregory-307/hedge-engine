@@ -12,7 +12,9 @@ from .models import (
     InventoryPosition,
     MarketConditions,
     PnLScenarios,
+    PositionSummary,
     RiskConfig,
+    RiskScoreBreakdown,
 )
 
 
@@ -132,9 +134,9 @@ def calculate_risk_score(
     market: MarketConditions,
     pnl_scenarios: PnLScenarios,
     config: RiskConfig,
-) -> float:
+) -> tuple[float, RiskScoreBreakdown]:
     """
-    Calculate a 0-100 risk score.
+    Calculate a 0-100 risk score with component breakdown.
 
     Higher = more urgent to hedge.
 
@@ -145,13 +147,21 @@ def calculate_risk_score(
     - Size vs liquidity: 0-liquidity_weight points (position size relative to depth)
 
     See RiskConfig docstring for design note on intentional volatility double-counting.
+
+    Returns:
+        Tuple of (total_score, breakdown) where breakdown shows each component.
     """
-    score = 0.0
     notional = abs(position.size * market.current_price)
 
     # Handle zero-size position
     if notional == 0:
-        return 0.0
+        return 0.0, RiskScoreBreakdown(
+            loss_severity=0.0,
+            position_age=0.0,
+            volatility_regime=0.0,
+            size_vs_liquidity=0.0,
+            total=0.0,
+        )
 
     # 1. Loss severity (0 to loss_weight points)
     # Uses hedge_trigger_loss_pct as the "concerning" threshold
@@ -183,7 +193,6 @@ def calculate_risk_score(
             loss_score = config.loss_weight
 
     loss_score = min(config.loss_weight, loss_score * vol_adjustment)
-    score += loss_score
 
     # 2. Position age (0 to age_weight points)
     # Non-linear: accelerates after urgent_hold_minutes
@@ -200,7 +209,6 @@ def calculate_risk_score(
             age_score = config.age_weight
 
     age_score = min(config.age_weight, age_score)
-    score += age_score
 
     # 3. Volatility regime (0 to vol_weight points)
     # Smooth scaling from 0 to extreme threshold
@@ -208,7 +216,6 @@ def calculate_risk_score(
         vol_score = config.vol_weight
     else:
         vol_score = (market.volatility_1d / config.extreme_vol_threshold) * config.vol_weight
-    score += vol_score
 
     # 4. Size vs liquidity (0 to liquidity_weight points)
     # For long positions, we care about bid depth (we'd sell into bids)
@@ -220,9 +227,19 @@ def calculate_risk_score(
         liquidity_score = min(config.liquidity_weight, (size_ratio ** 0.5) * config.liquidity_weight)
     else:
         liquidity_score = config.liquidity_weight  # No liquidity = max concern
-    score += liquidity_score
 
-    return float(min(100, max(0, score)))
+    total = loss_score + age_score + vol_score + liquidity_score
+    total = float(min(100, max(0, total)))
+
+    breakdown = RiskScoreBreakdown(
+        loss_severity=loss_score,
+        position_age=age_score,
+        volatility_regime=vol_score,
+        size_vs_liquidity=liquidity_score,
+        total=total,
+    )
+
+    return total, breakdown
 
 
 def determine_action(
@@ -296,6 +313,25 @@ def determine_action(
     )
 
 
+def _build_hedge_order_instruction(
+    position: InventoryPosition,
+    hedge_cost: HedgeCost | None,
+    hedge_pct: float,
+) -> str | None:
+    """Build a concrete order instruction string."""
+    if hedge_cost is None or hedge_pct == 0:
+        return None
+
+    # Determine verb based on instrument
+    instrument = hedge_cost.instrument
+    if instrument in (HedgeInstrument.SPOT_SELL, HedgeInstrument.PERP_SHORT):
+        verb = "Sell"
+    else:
+        verb = "Buy"
+
+    return f"{verb} {hedge_cost.size:.4g} {position.asset} via {instrument.value}"
+
+
 def assess_inventory_risk(
     position: InventoryPosition,
     market: MarketConditions,
@@ -323,6 +359,21 @@ def assess_inventory_risk(
             "Flat position assessed",
             extra={"asset": position.asset, "action": "HOLD", "risk_score": 0},
         )
+        zero_breakdown = RiskScoreBreakdown(
+            loss_severity=0.0,
+            position_age=0.0,
+            volatility_regime=0.0,
+            size_vs_liquidity=0.0,
+            total=0.0,
+        )
+        zero_summary = PositionSummary(
+            worst_case_loss_usd=0.0,
+            best_case_gain_usd=0.0,
+            position_side="FLAT",
+            notional_usd=0.0,
+            age_hours=0.0,
+            hedge_order=None,
+        )
         return HedgeRecommendation(
             action=Action.HOLD,
             hedge_pct=0.0,
@@ -332,11 +383,12 @@ def assess_inventory_risk(
                 move_up_2pct=0, move_up_5pct=0,
             ),
             risk_score=0.0,
+            risk_breakdown=zero_breakdown,
             reasoning="No position to assess (size = 0).",
             re_evaluate_minutes=config.low_risk_reeval_minutes,
             position_notional_usd=0.0,
-            # unrealized_pnl is passed through for user context, not used in calculations
             current_unrealized_pnl=0.0,
+            summary=zero_summary,
         )
 
     # Calculate P&L scenarios (unhedged)
@@ -345,8 +397,8 @@ def assess_inventory_risk(
     # Estimate cost of a full hedge (we'll adjust based on recommendation)
     full_hedge_cost = estimate_hedge_cost(position, market, hedge_pct=1.0, config=config)
 
-    # Calculate risk score
-    risk_score = calculate_risk_score(position, market, pnl_scenarios, config)
+    # Calculate risk score with breakdown
+    risk_score, risk_breakdown = calculate_risk_score(position, market, pnl_scenarios, config)
 
     # Determine action
     action, hedge_pct, reasoning = determine_action(
@@ -397,15 +449,37 @@ def assess_inventory_risk(
     else:
         re_eval = config.low_risk_reeval_minutes
 
+    # Build summary for quick decision-making
+    # Worst case: the most negative P&L scenario (unhedged)
+    unhedged_pnl = calculate_pnl_scenarios(position, market, config, hedge_pct=0.0)
+    all_scenarios = [
+        unhedged_pnl.move_down_5pct,
+        unhedged_pnl.move_down_2pct,
+        unhedged_pnl.move_up_2pct,
+        unhedged_pnl.move_up_5pct,
+    ]
+    worst_case = min(all_scenarios)
+    best_case = max(all_scenarios)
+
+    summary = PositionSummary(
+        worst_case_loss_usd=worst_case if worst_case < 0 else 0.0,
+        best_case_gain_usd=best_case if best_case > 0 else 0.0,
+        position_side="LONG" if position.is_long else "SHORT",
+        notional_usd=notional,
+        age_hours=round(position.age_minutes / 60, 2),
+        hedge_order=_build_hedge_order_instruction(position, actual_hedge_cost, hedge_pct),
+    )
+
     return HedgeRecommendation(
         action=action,
         hedge_pct=hedge_pct,
         suggested_hedge=actual_hedge_cost,
         pnl_scenarios=pnl_scenarios,
         risk_score=risk_score,
+        risk_breakdown=risk_breakdown,
         reasoning=reasoning,
         re_evaluate_minutes=re_eval,
-        position_notional_usd=abs(position.size * market.current_price),
-        # unrealized_pnl is passed through for user context, not used in calculations
+        position_notional_usd=notional,
         current_unrealized_pnl=position.unrealized_pnl,
+        summary=summary,
     )
